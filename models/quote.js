@@ -1,8 +1,8 @@
-// const mongoose = require('mongoose');
-import mongoose from "mongoose";
+const mongoose = require('mongoose');
 
 const QuoteSchema = new mongoose.Schema({
     quote: { type: String, required: true}
 })
 
-export default mongoose.model('Quote', QuoteSchema)
+
+module.exports = mongoose.model('Quote', QuoteSchema);
