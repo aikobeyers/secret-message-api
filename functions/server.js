@@ -5,7 +5,7 @@ import mongoose from "mongoose";
 
 import {config} from "dotenv";
 
-import quoteRoutes from "./routes/quoteRoutes.js";
+import quoteRoutes from "../routes/quoteRoutes.js";
 
 config();
 
