@@ -68,7 +68,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a new quote
-router.post('/', async (req, res) => {
+router.post('/', verifyToken, async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
 
@@ -83,7 +83,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update a quote
-router.put('/:id', async (req, res) => {
+router.put('/:id', verifyToken, async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
         console.log('Putting');
@@ -105,7 +105,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete a quote
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', verifyToken, async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
         console.log('Looking up quote');
