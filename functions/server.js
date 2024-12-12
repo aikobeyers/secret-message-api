@@ -6,6 +6,11 @@ const cors = require('cors');
 
 const connectToDatabase = require('../lib/db'); // Import connection logic
 const Quote = require('../models/quote');
+const User = require('../models/user');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const verifyToken = require('../middleware/authMiddleware');
+
 
 const app = express();
 const router = express.Router();
@@ -15,6 +20,7 @@ app.use(express.json());
 app.use(cors({
     origin: '*',
     allowedHeaders: '*',
+    allowCredentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
 }));
 app.options('*', cors()); // Handle preflight requests
@@ -22,7 +28,7 @@ app.options('*', cors()); // Handle preflight requests
 // Routes
 
 // Get all quotes
-router.get('/', async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
         console.log('Getting quotes');
@@ -113,11 +119,50 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
+// User registration
+router.post('/auth/register', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        const {username, password} = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = new User({username, password: hashedPassword});
+        await user.save();
+        res.status(201).json({message: 'User registered successfully'});
+    } catch (error) {
+        res.status(500).json({error: 'Registration failed'});
+    }
+});
+
+// User login
+router.post('/auth/login', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        const {username, password} = req.body;
+        const user = await User.findOne({username});
+        if (!user) {
+            return res.status(401).json({error: 'Authentication failed'});
+        }
+        const passwordMatch = await bcrypt.compare(password, user.password);
+        if (!passwordMatch) {
+            return res.status(401).json({error: 'Authentication failed'});
+        }
+        const token = jwt.sign({userId: user._id}, 'your-secret-key', {
+            expiresIn: '1m',
+        });
+
+        res.status(200).json({token});
+    } catch (error) {
+        res.status(500).json({error: 'Login failed'});
+    }
+});
+
+//TODO endpoint for refreshing token
+
 // Use the router
 app.use('/.netlify/functions/server/', router);
 
 //comment for deploy
-// app.listen(3222);
+//app.listen(3222, () => console.log('Listening on port 3222'));
 // Serverless handler
 const handler = serverless(app);
 module.exports.handler = async (event, context) => {
