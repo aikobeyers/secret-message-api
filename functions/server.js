@@ -1,4 +1,4 @@
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config({path: '../.env'});
 
 const express = require('express');
 const serverless = require('serverless-http');
@@ -12,10 +12,11 @@ const router = express.Router();
 
 // Middleware
 app.use(express.json());
-app.use(cors(/*{
-    origin: 'http://localhost:3000', // Replace with your Next.js app's URL
+app.use(cors({
+    origin: '*',
+    allowedHeaders: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE'],
-}*/));
+}));
 app.options('*', cors()); // Handle preflight requests
 
 // Routes
@@ -29,7 +30,21 @@ router.get('/', async (req, res) => {
         res.json(quotes);
     } catch (err) {
         console.error('Error fetching quotes:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
+// Get random quote to display
+router.get('/random', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        const quotes = await Quote.find({display: true});
+        const index = Math.floor(Math.random() * [...quotes].length);
+
+        res.json([...quotes][index]);
+    } catch (err) {
+        console.error('Error fetching quotes:', err);
+        res.status(500).json({message: 'Internal Server Error'});
     }
 });
 
@@ -38,11 +53,11 @@ router.get('/:id', async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
         const quote = await Quote.findById(req.params.id);
-        if (!quote) return res.status(404).json({ message: 'Quote not found' });
+        if (!quote) return res.status(404).json({message: 'Quote not found'});
         res.json(quote);
     } catch (err) {
         console.error('Error fetching quote by ID:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(500).json({message: 'Internal Server Error'});
     }
 });
 
@@ -50,43 +65,36 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
-        console.log(req.body.quote);
-        if(req.body._id){
-            const quote = await Quote.findByIdAndUpdate(
-                req.body._id,
-                { quote: req.body.quote, display: req.body.display },
-                { new: true }
-            );
-            res.status(201).json(quote);
-        } else {
-            const quote = new Quote({ quote: req.body.quote, display: req.body.display });
-            const newQuote = await quote.save();
-            res.status(201).json(newQuote);
 
-        }
+        const quote = new Quote({quote: req.body.quote, display: req.body.display});
+        const newQuote = await quote.save();
+        res.status(201).json(newQuote);
 
     } catch (err) {
         console.error('Error creating quote:', err);
-        res.status(400).json({ message: 'Bad Request. ' + err.message + ' received: ' + req.body.quote + ' and ' + req.body.display});
+        res.status(400).json({message: 'Bad Request. ' + err.message + ' received: ' + req.body.quote + ' and ' + req.body.display});
     }
 });
 
 // Update a quote
-router.put('/update', async (req, res) => {
+router.put('/:id', async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
         console.log('Putting');
+        if (!req.params.id) {
+            return res.status(404).json({message: 'ID not found'});
+        }
         const quote = await Quote.findByIdAndUpdate(
-            req.body._id,
-            { quote: req.body.quote, display: req.body.display },
-            { new: true }
+            req.params.id,
+            {quote: req.body.quote, display: req.body.display},
+            {new: true}
         );
 
-        if (!quote) return res.status(404).json({ message: 'Quote not found' });
+        if (!quote) return res.status(404).json({message: 'Quote not found'});
         res.json(quote);
     } catch (err) {
         console.error('Error updating quote:', err);
-        res.status(400).json({ message: 'Bad Request. ' + err.message });
+        res.status(400).json({message: 'Bad Request. ' + err.message});
     }
 });
 
@@ -97,17 +105,19 @@ router.delete('/:id', async (req, res) => {
         console.log('Looking up quote');
         const quote = await Quote.findByIdAndDelete(req.params.id);
         console.log('Found quote:' + JSON.stringify(quote));
-        if (!quote) return res.status(404).json({ message: 'Quote not found' });
-        res.json({ message: 'Quote deleted successfully' });
+        if (!quote) return res.status(404).json({message: 'Quote not found'});
+        res.json({message: 'Quote deleted successfully'});
     } catch (err) {
         console.error('Error deleting quote:', err);
-        res.status(500).json({ message: 'Internal Server Error' });
+        res.status(500).json({message: 'Internal Server Error'});
     }
 });
 
 // Use the router
 app.use('/.netlify/functions/server/', router);
 
+//comment for deploy
+// app.listen(3222);
 // Serverless handler
 const handler = serverless(app);
 module.exports.handler = async (event, context) => {
