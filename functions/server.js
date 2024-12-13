@@ -147,7 +147,7 @@ router.post('/auth/login', async (req, res) => {
             return res.status(401).json({error: 'Authentication failed'});
         }
         const token = jwt.sign({userId: user._id}, 'your-secret-key', {
-            expiresIn: '1m',
+            expiresIn: '1h',
         });
 
         res.status(200).json({token});
@@ -155,6 +155,24 @@ router.post('/auth/login', async (req, res) => {
         res.status(500).json({error: 'Login failed'});
     }
 });
+
+// verify token
+router.post('/auth/verify', verifyToken, async (req, res) => {
+    try {
+        const existingToken = req.body.token;
+
+        const decoded = jwt.verify(existingToken, 'your-secret-key');
+        const token = jwt.sign({userId: decoded.userId}, 'your-secret-key', {
+            expiresIn: '1h',
+        });
+
+        res.status(200).json({token});
+    } catch (error) {
+        res.status(500).json({error: 'Token refresh failed'});
+    }
+});
+
+
 
 //TODO endpoint for refreshing token
 
