@@ -3,6 +3,9 @@ require('dotenv').config({path: '../.env'});
 const express = require('express');
 const serverless = require('serverless-http');
 const cors = require('cors');
+const multer = require('multer');
+const csv = require('csv-parser');
+const { Readable } = require('stream');
 
 const connectToDatabase = require('../lib/db'); // Import connection logic
 const Quote = require('../models/quote');
@@ -15,6 +18,9 @@ const TdQuote = require('../models/tdQuote');
 
 const app = express();
 const router = express.Router();
+
+// Configure multer for file uploads
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Middleware
 app.use(express.json());
@@ -133,6 +139,79 @@ router.get('/tdquotes/all', /*verifyToken,*/ async (req, res) => {
     } catch (err) {
         console.error('Error fetching quotes:', err);
         res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
+// Upload TD quotes from CSV
+router.post('/tdquotes/upload'/*, verifyToken*/, async (req, res) => {
+    try {
+        const csvContent = req.body.csv || req.body;
+        
+        if (!csvContent) {
+            return res.status(400).json({message: 'No CSV content provided'});
+        }
+
+        await connectToDatabase(); // Ensure database connection
+
+        const quotes = [];
+        const errors = [];
+        let rowIndex = 0;
+
+        // Parse CSV from raw text content
+        await new Promise((resolve, reject) => {
+            Readable.from([csvContent])
+                .pipe(csv())
+                .on('data', (row) => {
+                    rowIndex++;
+                    try {
+                        // Map CSV columns: Name -> by, Quote -> value, Date -> date
+                        const name = row['Name'] || row['name'];
+                        const quote = row['Quote'] || row['quote'];
+                        const date = row['Date'] || row['date'];
+
+                        // Validate required fields
+                        if (!name || !quote || !date) {
+                            errors.push({
+                                row: rowIndex,
+                                error: 'Missing required fields: Name, Quote, or Date'
+                            });
+                            return;
+                        }
+
+                        quotes.push(new TdQuote({
+                            value: quote,
+                            by: name,
+                            date: date
+                        }));
+                    } catch (err) {
+                        errors.push({
+                            row: rowIndex,
+                            error: err.message
+                        });
+                    }
+                })
+                .on('end', resolve)
+                .on('error', reject);
+        });
+
+        if (quotes.length === 0) {
+            return res.status(400).json({
+                message: 'No valid quotes found in CSV',
+                errors
+            });
+        }
+
+        // Insert all quotes into database
+        const savedQuotes = await TdQuote.insertMany(quotes);
+
+        res.status(201).json({
+            message: `Successfully uploaded ${savedQuotes.length} quotes`,
+            count: savedQuotes.length,
+            errors: errors.length > 0 ? errors : undefined
+        });
+    } catch (err) {
+        console.error('Error uploading TD quotes:', err);
+        res.status(400).json({message: 'Error processing CSV file: ' + err.message});
     }
 });
 
