@@ -10,6 +10,7 @@ const User = require('../models/user');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const verifyToken = require('../middleware/authMiddleware');
+const TdQuote = require('../models/tdQuote');
 
 
 const app = express();
@@ -27,6 +28,7 @@ app.options('*', cors()); // Handle preflight requests
 
 // Routes
 
+// Non TD quotes
 // Get all quotes
 router.get('/', verifyToken, async (req, res) => {
     try {
@@ -119,6 +121,23 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
 });
 
+//TD Quotes
+// Get all TD quotes
+router.get('/tdquotes/all', /*verifyToken,*/ async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        console.log('Getting all TD quotes');
+        const quotes = await TdQuote.find();
+        console.log('Quotes found: ' + quotes);
+        res.json(quotes);
+    } catch (err) {
+        console.error('Error fetching quotes:', err);
+        res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
+
+//User management
 // User registration
 router.post('/auth/register', async (req, res) => {
     try {
