@@ -2,6 +2,7 @@
   "name": "secret-message-api",
   "version": "1.0.0",
   "scripts": {
+    "start": "netlify dev",
     "test": "echo \"Error: no test specified\" && exit 1",
     "build": "netlify deploy --prod"
   },

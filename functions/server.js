@@ -128,16 +128,51 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 //TD Quotes
-// Get all TD quotes
-router.get('/tdquotes/all', /*verifyToken,*/ async (req, res) => {
+// Get all TD quotes or filter by query parameters
+router.get('/tdquotes/get', /*verifyToken,*/ async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
-        console.log('Getting all TD quotes');
-        const quotes = await TdQuote.find();
-        console.log('Quotes found: ' + quotes);
+        const quoteQuery = req.query.quoteQuery;
+        const byFilter = req.query.by;
+        
+        let quotes;
+        
+        if (!quoteQuery && !byFilter) {
+            quotes = await TdQuote.find();
+        } else {
+            const query = {};
+            
+            if (quoteQuery) {
+                query.value = {$regex: quoteQuery, $options: 'i'};
+            }
+            
+            if (byFilter) {
+                const byValues = byFilter.split(',').map(val => val.trim());
+                if (byValues.length === 1) {
+                    query.by = {$regex: byValues[0], $options: 'i'};
+                } else {
+                    query.$or = byValues.map(val => ({by: {$regex: val, $options: 'i'}}));
+                }
+            }
+
+            quotes = await TdQuote.find(query);
+        }
+        
         res.json(quotes);
     } catch (err) {
         console.error('Error fetching quotes:', err);
+        res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
+// Get all unique authors
+router.get('/tdquotes/authors', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        const authors = await TdQuote.distinct('by');
+        res.json(authors);
+    } catch (err) {
+        console.error('Error fetching authors:', err);
         res.status(500).json({message: 'Internal Server Error'});
     }
 });
