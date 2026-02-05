@@ -6,6 +6,7 @@ const cors = require('cors');
 const multer = require('multer');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
+const mongoose = require('mongoose');
 
 const connectToDatabase = require('../lib/db'); // Import connection logic
 const Quote = require('../models/quote');
@@ -14,6 +15,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const verifyToken = require('../middleware/authMiddleware');
 const TdQuote = require('../models/tdQuote');
+const TdQuoteAuthor = require('../models/tdQuoteAuthor');
 
 
 const app = express();
@@ -138,7 +140,7 @@ router.get('/tdquotes/get', /*verifyToken,*/ async (req, res) => {
         let quotes;
         
         if (!quoteQuery && !byFilter) {
-            quotes = await TdQuote.find();
+            quotes = await TdQuote.find().populate('by');
         } else {
             const query = {};
             
@@ -147,15 +149,28 @@ router.get('/tdquotes/get', /*verifyToken,*/ async (req, res) => {
             }
             
             if (byFilter) {
-                const byValues = byFilter.split(',').map(val => val.trim());
-                if (byValues.length === 1) {
-                    query.by = {$regex: byValues[0], $options: 'i'};
-                } else {
-                    query.$or = byValues.map(val => ({by: {$regex: val, $options: 'i'}}));
+                const byValues = byFilter.split(',').map(val => val.trim()).filter(Boolean);
+                const authorIds = [];
+                const authorNames = [];
+
+                byValues.forEach((value) => {
+                    if (mongoose.Types.ObjectId.isValid(value)) {
+                        authorIds.push(value);
+                    } else {
+                        authorNames.push(value);
+                    }
+                });
+
+                if (authorNames.length > 0) {
+                    const nameRegexes = authorNames.map((name) => new RegExp(name, 'i'));
+                    const authors = await TdQuoteAuthor.find({name: {$in: nameRegexes}}).select('_id');
+                    authors.forEach((author) => authorIds.push(author._id));
                 }
+
+                query.by = {$in: authorIds};
             }
 
-            quotes = await TdQuote.find(query);
+            quotes = await TdQuote.find(query).populate('by');
         }
         
         res.json(quotes);
@@ -169,11 +184,55 @@ router.get('/tdquotes/get', /*verifyToken,*/ async (req, res) => {
 router.get('/tdquotes/authors', async (req, res) => {
     try {
         await connectToDatabase(); // Ensure database connection
-        const authors = await TdQuote.distinct('by');
+        const authors = await TdQuoteAuthor.find();
         res.json(authors);
     } catch (err) {
         console.error('Error fetching authors:', err);
         res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
+// Create a new TD quote
+router.post('/tdquotes/create', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        const { value, date, newAuthor, by } = req.body;
+        
+        // Validate required fields
+        if (!value || !date) {
+            return res.status(400).json({message: 'value and date are required'});
+        }
+        
+        let authorId;
+        
+        if (newAuthor) {
+            // Create or upsert author
+            const author = await TdQuoteAuthor.findOneAndUpdate(
+                {name: newAuthor},
+                {$setOnInsert: {name: newAuthor, score: 0}},
+                {new: true, upsert: true}
+            );
+            authorId = author._id;
+        } else if (by) {
+            // Use provided author ID
+            authorId = by;
+        } else {
+            return res.status(400).json({message: 'Either newAuthor or by (author ID) must be provided'});
+        }
+        
+        const quote = new TdQuote({
+            value,
+            date,
+            by: authorId
+        });
+        
+        const savedQuote = await quote.save();
+        const populatedQuote = await savedQuote.populate('by');
+        
+        res.status(201).json(populatedQuote);
+    } catch (err) {
+        console.error('Error creating quote:', err);
+        res.status(400).json({message: 'Error creating quote: ' + err.message});
     }
 });
 
@@ -213,11 +272,11 @@ router.post('/tdquotes/upload'/*, verifyToken*/, async (req, res) => {
                             return;
                         }
 
-                        quotes.push(new TdQuote({
+                        quotes.push({
                             value: quote,
                             by: name,
                             date: date
-                        }));
+                        });
                     } catch (err) {
                         errors.push({
                             row: rowIndex,
@@ -236,8 +295,24 @@ router.post('/tdquotes/upload'/*, verifyToken*/, async (req, res) => {
             });
         }
 
+        const quotesToInsert = [];
+
+        for (const quote of quotes) {
+            const author = await TdQuoteAuthor.findOneAndUpdate(
+                {name: quote.by},
+                {$setOnInsert: {name: quote.by, score: 0}},
+                {new: true, upsert: true}
+            );
+
+            quotesToInsert.push(new TdQuote({
+                value: quote.value,
+                by: author._id,
+                date: quote.date
+            }));
+        }
+
         // Insert all quotes into database
-        const savedQuotes = await TdQuote.insertMany(quotes);
+        const savedQuotes = await TdQuote.insertMany(quotesToInsert);
 
         res.status(201).json({
             message: `Successfully uploaded ${savedQuotes.length} quotes`,
