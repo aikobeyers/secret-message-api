@@ -130,6 +130,27 @@ router.delete('/:id', verifyToken, async (req, res) => {
 });
 
 //TD Quotes
+// Get random TD quote
+router.get('/tdquotes/random', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        
+        const quotes = await TdQuote.find().populate('by');
+        
+        if (quotes.length === 0) {
+            return res.status(404).json({message: 'No quotes found'});
+        }
+        
+        const randomIndex = Math.floor(Math.random() * quotes.length);
+        const randomQuote = quotes[randomIndex];
+        
+        res.json(randomQuote);
+    } catch (err) {
+        console.error('Error fetching random quote:', err);
+        res.status(500).json({message: 'Internal Server Error'});
+    }
+});
+
 // Get all TD quotes or filter by query parameters
 router.get('/tdquotes/get', /*verifyToken,*/ async (req, res) => {
     try {
