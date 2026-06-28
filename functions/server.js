@@ -7,6 +7,7 @@ const multer = require('multer');
 const csv = require('csv-parser');
 const { Readable } = require('stream');
 const mongoose = require('mongoose');
+const webpush = require('web-push');
 
 const connectToDatabase = require('../lib/db'); // Import connection logic
 const Quote = require('../models/quote');
@@ -16,6 +17,15 @@ const jwt = require('jsonwebtoken');
 const verifyToken = require('../middleware/authMiddleware');
 const TdQuote = require('../models/tdQuote');
 const TdQuoteAuthor = require('../models/tdQuoteAuthor');
+const PushSubscription = require('../models/pushSubscription');
+
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidSubject = process.env.VAPID_SUBJECT || 'mailto:admin@example.com';
+
+if (vapidPublicKey && vapidPrivateKey) {
+    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+}
 
 
 const app = express();
@@ -213,6 +223,28 @@ router.get('/tdquotes/authors', async (req, res) => {
     }
 });
 
+// Increment author score
+router.put('/tdquotes/authors/:id/score', async (req, res) => {
+    try {
+        await connectToDatabase(); // Ensure database connection
+        
+        const author = await TdQuoteAuthor.findByIdAndUpdate(
+            req.params.id,
+            {$inc: {score: 1}},
+            {new: true}
+        );
+        
+        if (!author) {
+            return res.status(404).json({message: 'Author not found'});
+        }
+        
+        res.json(author);
+    } catch (err) {
+        console.error('Error updating author score:', err);
+        res.status(400).json({message: 'Error updating author score: ' + err.message});
+    }
+});
+
 // Create a new TD quote
 router.post('/tdquotes/create', async (req, res) => {
     try {
@@ -343,6 +375,105 @@ router.post('/tdquotes/upload'/*, verifyToken*/, async (req, res) => {
     } catch (err) {
         console.error('Error uploading TD quotes:', err);
         res.status(400).json({message: 'Error processing CSV file: ' + err.message});
+    }
+});
+
+// Push notifications
+router.get('/push/public-key', async (req, res) => {
+    if (!vapidPublicKey) {
+        return res.status(500).json({ message: 'Push notifications are not configured' });
+    }
+
+    res.json({ publicKey: vapidPublicKey });
+});
+
+router.post('/push/subscribe', async (req, res) => {
+    try {
+        await connectToDatabase();
+
+        const subscription = req.body?.subscription;
+        if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) {
+            return res.status(400).json({ message: 'Invalid subscription payload' });
+        }
+
+        await PushSubscription.findOneAndUpdate(
+            { endpoint: subscription.endpoint },
+            {
+                endpoint: subscription.endpoint,
+                expirationTime: subscription.expirationTime || null,
+                keys: {
+                    p256dh: subscription.keys.p256dh,
+                    auth: subscription.keys.auth,
+                },
+            },
+            { upsert: true, new: true, setDefaultsOnInsert: true },
+        );
+
+        res.status(201).json({ message: 'Subscription registered' });
+    } catch (err) {
+        console.error('Error saving push subscription:', err);
+        res.status(500).json({ message: 'Failed to save push subscription' });
+    }
+});
+
+router.post('/push/broadcast', async (req, res) => {
+    if (!vapidPublicKey || !vapidPrivateKey) {
+        return res.status(500).json({ message: 'Push notifications are not configured' });
+    }
+
+    try {
+        await connectToDatabase();
+
+        const title = req.body?.title || 'TD Quotes';
+        const body = req.body?.body || 'Someone added a new quote!';
+
+        const subscriptions = await PushSubscription.find();
+        if (subscriptions.length === 0) {
+            return res.json({ message: 'No subscribers to notify', sent: 0, removed: 0 });
+        }
+
+        const payload = JSON.stringify({
+            notification: {
+                title,
+                body,
+                icon: '/icons/icon-192x192.png',
+                badge: '/icons/icon-96x96.png',
+                data: {
+                    onActionClick: {
+                        default: { operation: 'openWindow', url: '/' },
+                    },
+                },
+            },
+        });
+
+        let sent = 0;
+        let removed = 0;
+
+        for (const sub of subscriptions) {
+            try {
+                await webpush.sendNotification(
+                    {
+                        endpoint: sub.endpoint,
+                        expirationTime: sub.expirationTime,
+                        keys: sub.keys,
+                    },
+                    payload,
+                );
+                sent += 1;
+            } catch (error) {
+                if (error.statusCode === 404 || error.statusCode === 410) {
+                    await PushSubscription.deleteOne({ _id: sub._id });
+                    removed += 1;
+                } else {
+                    console.error('Error sending push notification:', error);
+                }
+            }
+        }
+
+        res.json({ message: 'Broadcast complete', sent, removed });
+    } catch (err) {
+        console.error('Error broadcasting push notifications:', err);
+        res.status(500).json({ message: 'Failed to broadcast push notifications' });
     }
 });
 
