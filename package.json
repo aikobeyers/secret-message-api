@@ -4,7 +4,8 @@
   "scripts": {
     "start": "netlify dev",
     "test": "echo \"Error: no test specified\" && exit 1",
-    "deploy": "netlify deploy --prod"
+    "deploy": "netlify deploy --prod",
+    "vapid:generate": "node -e \"const fs=require('fs'); const webpush=require('web-push'); const path='.env'; const existing=fs.existsSync(path)?fs.readFileSync(path,'utf8'):''; const keys=webpush.generateVAPIDKeys(); const cleaned=existing.split('\\n').filter((line)=>!line.startsWith('VAPID_PUBLIC_KEY=')&&!line.startsWith('VAPID_PRIVATE_KEY=')&&!line.startsWith('VAPID_SUBJECT=')).join('\\n').trimEnd(); const next=(cleaned?cleaned+'\\n':'')+`VAPID_PUBLIC_KEY=${keys.publicKey}\\nVAPID_PRIVATE_KEY=${keys.privateKey}\\nVAPID_SUBJECT=mailto:admin@example.com\\n`; fs.writeFileSync(path,next); console.log('VAPID keys generated in .env');\""
   },
   "keywords": [],
   "author": "",
